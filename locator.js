@@ -26,11 +26,11 @@
 /* ========================= IMPOSTAZIONI ========================= */
 /* Incollare qui l'indirizzo dell'applicazione web di Apps Script,
    quello che finisce con /exec — vedi LEGGIMI.md */
-var URL_RACCOLTA = "";
+var URL_RACCOLTA = "https://script.google.com/macros/s/AKfycbxbYitxo4BFa_BnqMLsY6IPVWE2PtjQcUwLVNp04lH1X30DSnSjrAnW8v0_aqQDIz0d/exec";
 
 /* Chiave condivisa, se impostata anche nello script lato Google:
    evita che qualcuno scriva sul foglio conoscendo solo l'indirizzo. */
-var CHIAVE = "";
+var CHIAVE = "ArKt2}52g[chJ8^j%z2k7B";
 /* =============================================================== */
 
 (function () {
