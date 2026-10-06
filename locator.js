@@ -26,7 +26,7 @@
 /* ========================= IMPOSTAZIONI ========================= */
 /* Incollare qui l'indirizzo dell'applicazione web di Apps Script,
    quello che finisce con /exec — vedi LEGGIMI.md */
-var URL_RACCOLTA = "https://script.google.com/macros/s/AKfycbxbYitxo4BFa_BnqMLsY6IPVWE2PtjQcUwLVNp04lH1X30DSnSjrAnW8v0_aqQDIz0d/exec";
+var URL_RACCOLTA = "https://script.google.com/macros/s/AKfycbzS95xouM3fBGt_i9AWWesCXEEWnjbfDww4wtJPJx4JzDmivjsa_slRjqxaF2ZjUbdP/exec";
 
 /* Chiave condivisa, se impostata anche nello script lato Google:
    evita che qualcuno scriva sul foglio conoscendo solo l'indirizzo. */
@@ -44,7 +44,9 @@ var CHIAVE = "ArKt2}52g[chJ8^j%z2k7B";
   var T = window.TRADUZIONI[LINGUA] || window.TRADUZIONI.it;
   if (!window.TRADUZIONI[LINGUA]) LINGUA = 'it';
 
-  var posizione = null;      /* la lettura migliore finora */
+  var posizione = null;      /* la lettura migliore finora, per il video */
+  var letture = [];          /* tutte le letture fatte, in ordine */
+  var inviate = 0;           /* quante sono partite verso il foglio */
   var inviata = false;
   var tentativo = 0;         /* quale tentativo stiamo facendo */
   var TENTATIVI = 3;         /* il GPS migliora con qualche secondo in più */
@@ -118,6 +120,9 @@ var CHIAVE = "ArKt2}52g[chJ8^j%z2k7B";
     if (primo !== false) {
       tentativo = 0;
       posizione = null;
+      letture = [];
+      inviate = 0;
+      inviata = false;
     }
     tentativo++;
     attesa(true);
@@ -141,8 +146,15 @@ var CHIAVE = "ArKt2}52g[chJ8^j%z2k7B";
   }
 
   /* Il GPS si assesta in qualche secondo: la prima lettura è spesso la
-     peggiore. Si fanno tre tentativi e si tiene il più preciso, fermandosi
-     prima se si arriva a una precisione già buona. */
+     peggiore, a volte di chilometri. Si fanno quindi tre letture e si
+     inviano TUTTE, una per una, appena arrivano.
+
+     Inviarle tutte e subito, invece di tenere solo la migliore e mandarla
+     alla fine, serve a due cose: la sala operativa vede qualcosa già dopo
+     pochi secondi — che con una persona in difficoltà è ciò che conta — e
+     le tre letture insieme raccontano se chi chiama è fermo o si sta
+     spostando, che una sola non direbbe. A video resta mostrata la
+     migliore, perché è quella che il cittadino può dettare al telefono. */
   function riuscito(pos) {
     var letta = {
       lat: pos.coords.latitude,
@@ -152,6 +164,10 @@ var CHIAVE = "ArKt2}52g[chJ8^j%z2k7B";
       momento: new Date().toISOString(),
       tentativo: tentativo,
     };
+    letture.push(letta);
+
+    /* Parte subito, da sé: non si aspetta la lettura successiva */
+    invia(letta);
 
     /* precisione 0 significa "non dichiarata": non è una lettura perfetta */
     var migliore = !posizione ||
@@ -161,8 +177,7 @@ var CHIAVE = "ArKt2}52g[chJ8^j%z2k7B";
 
     mostra(posizione);
 
-    var abbastanza = posizione.precisione > 0 && posizione.precisione <= 20;
-    if (tentativo < TENTATIVI && !abbastanza) {
+    if (tentativo < TENTATIVI) {
       stato('attesa', testoTentativo(), '🛰️');
       setTimeout(function () { rileva(false); }, 2500);
       return;
@@ -170,8 +185,28 @@ var CHIAVE = "ArKt2}52g[chJ8^j%z2k7B";
 
     attesa(false);
     document.getElementById('t-rileva').textContent = T.riprova;
-    stato('attesa', T.invio, '📡');
-    invia();
+    conclusione();
+  }
+
+
+  /* Cosa si dice a fine giro. L'esito di un invio verso Apps Script non è
+     mai certo (vedi invia()), quindi si parla di posizioni «inviate», non
+     di posizioni «ricevute»: la conferma vera la ha la sala operativa. */
+  function conclusione() {
+    if (!URL_RACCOLTA) {
+      stato('attesa', T.non_inviata, '📄');
+      return;
+    }
+    if (!inviate) {
+      stato('attesa', T.non_inviata, '📄');
+      return;
+    }
+    inviata = true;
+    if (inviate > 1 && T.inviate_n) {
+      stato('ok', T.inviate_n.replace('{n}', inviate), '✅');
+    } else {
+      stato('ok', T.inviata, '✅');
+    }
   }
 
   function mostra(p) {
@@ -201,12 +236,12 @@ var CHIAVE = "ArKt2}52g[chJ8^j%z2k7B";
     }
     attesa(false);
 
-    /* Se un tentativo precedente era riuscito, teniamo quella lettura */
-    if (posizione) {
+    /* Le letture riuscite prima sono già partite: non si rimanda niente,
+       si dice soltanto come è finita. */
+    if (letture.length) {
       mostra(posizione);
       document.getElementById('t-rileva').textContent = T.riprova;
-      stato('attesa', T.invio, '📡');
-      invia();
+      conclusione();
       return;
     }
 
@@ -218,7 +253,11 @@ var CHIAVE = "ArKt2}52g[chJ8^j%z2k7B";
   }
 
   /* --------------------------------------------------------- invio */
-  function invia() {
+
+  /* Invia UNA lettura. Viene chiamata una volta per lettura, quindi sul
+     foglio compaiono tre righe con lo stesso ID evento: è voluto, ed è
+     ciò che permette al portale di mostrarle tutte. */
+  function invia(lettura) {
     if (!URL_RACCOLTA) {
       /* Non configurato: la posizione resta comunque leggibile a video,
          e si può dettare al telefono. */
@@ -230,17 +269,17 @@ var CHIAVE = "ArKt2}52g[chJ8^j%z2k7B";
       id: ID,
       comando: COMANDO,
       lingua: LINGUA,
-      lat: posizione.lat,
-      lon: posizione.lon,
-      precisione: posizione.precisione,
-      quota: posizione.quota,
-      momento: posizione.momento,
+      lat: lettura.lat,
+      lon: lettura.lon,
+      precisione: lettura.precisione,
+      quota: lettura.quota,
+      momento: lettura.momento,
+      tentativo: lettura.tentativo,
       agente: navigator.userAgent,
       chiave: CHIAVE,
     };
 
     var corpo = JSON.stringify(dati);
-    var riuscito_invio = false;
 
     /* Apps Script non risponde con le intestazioni CORS: l'invio funziona,
        ma la risposta non è leggibile. Si usa quindi `no-cors` e si
@@ -252,8 +291,8 @@ var CHIAVE = "ArKt2}52g[chJ8^j%z2k7B";
       body: corpo,
       keepalive: true,
     }).then(function () {
-      riuscito_invio = true;
-      conferma();
+      inviate++;
+      if (tentativo >= TENTATIVI) conclusione();
     }).catch(function () {
       /* Secondo tentativo: sendBeacon sopravvive anche se la pagina si
          chiude, cosa non rara quando si torna alla telefonata. */
@@ -262,20 +301,19 @@ var CHIAVE = "ArKt2}52g[chJ8^j%z2k7B";
         ok = navigator.sendBeacon(URL_RACCOLTA,
           new Blob([corpo], { type: 'text/plain;charset=utf-8' }));
       } catch (e) { ok = false; }
-      if (ok) conferma();
-      else stato('attesa', T.non_inviata, '📄');
+      if (ok) {
+        inviate++;
+        if (tentativo >= TENTATIVI) conclusione();
+      } else if (!inviate) {
+        stato('attesa', T.non_inviata, '📄');
+      }
     });
 
     /* Rete molto lenta: dopo dodici secondi si dice comunque come stanno
        le cose, senza lasciare l'utente a fissare una rotella. */
     setTimeout(function () {
-      if (!inviata && !riuscito_invio) stato('attesa', T.non_inviata, '📄');
+      if (!inviata && !inviate) stato('attesa', T.non_inviata, '📄');
     }, 12000);
-  }
-
-  function conferma() {
-    inviata = true;
-    stato('ok', T.inviata, '✅');
   }
 
   /* --------------------------------------------------------- avvio */
